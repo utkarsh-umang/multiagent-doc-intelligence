@@ -31,6 +31,7 @@ class PipelineState(BaseModel):
     raw_text: str = ""
     field_schema: list[dict[str, Any]] = Field(default_factory=list)
     customer_rule_set: dict[str, Any] = Field(default_factory=dict)
+    master_data: dict[str, Any] = Field(default_factory=dict)
     shipment_id: str | None = None
     document_name: str | None = None
     storage_db_path: str = "app.duckdb"
@@ -42,6 +43,7 @@ class PipelineState(BaseModel):
 
     # Validator output
     validation_report: dict[str, Any] = Field(default_factory=dict)
+    validation_metadata: dict[str, Any] = Field(default_factory=dict)
 
     # Router output
     decision: str = ""

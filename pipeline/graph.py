@@ -15,6 +15,7 @@ from agents.router import run as run_router
 from agents.validator import run as run_validator
 from pipeline.state import PipelineState
 from rules.customer_rules import CUSTOMER_RULE_SET
+from rules.master_data import MASTER_DATA
 from storage.db import DEFAULT_DB_PATH, store_pipeline_run
 
 
@@ -111,10 +112,15 @@ def validator_node(state: PipelineState | dict[str, Any]) -> dict[str, Any]:
     current = _coerce_state(state)
     try:
         rule_set = current.customer_rule_set or CUSTOMER_RULE_SET
-        validation_report = run_validator(current.extracted_fields, rule_set=rule_set)
+        validation_report = run_validator(
+            current.extracted_fields,
+            rule_set=rule_set,
+            master_data=current.master_data or MASTER_DATA,
+        )
         return {
             "pipeline_status": "validated",
             "validation_report": validation_report,
+            "validation_metadata": validation_report.get("metadata", {}),
             "error": None,
         }
     except Exception as exc:
@@ -201,6 +207,7 @@ def run_pipeline(
         shipment_id=shipment_id,
         storage_db_path=db_path,
         customer_rule_set=customer_rule_set or CUSTOMER_RULE_SET,
+        master_data=MASTER_DATA,
         field_schema=_field_schema_from_rules(customer_rule_set or CUSTOMER_RULE_SET),
     )
     result = app.invoke(_model_to_dict(initial_state))
