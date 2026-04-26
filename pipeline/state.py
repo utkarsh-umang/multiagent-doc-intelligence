@@ -17,8 +17,11 @@ PipelineStatus = Literal[
     "extracted",
     "validating",
     "validated",
-    "routing",
-    "routed",
+    "auditing",
+    "audited",
+    "auto_approved",
+    "flagged_for_review",
+    "amendment_drafted",
     "storing",
     "complete",
     "failed",
@@ -35,6 +38,7 @@ class PipelineState(BaseModel):
     shipment_id: str | None = None
     document_name: str | None = None
     storage_db_path: str = "app.duckdb"
+    checkpoint_path: str = "data/checkpoints/latest.json"
 
     # Extractor output
     extracted_fields: dict[str, Any] = Field(default_factory=dict)
@@ -52,6 +56,7 @@ class PipelineState(BaseModel):
     amendment_draft: str = ""
     decision_report: dict[str, Any] = Field(default_factory=dict)
     auditor_metadata: dict[str, Any] = Field(default_factory=dict)
+    auditor_branch: str = ""
 
     # Storage output
     storage_id: str | None = None
