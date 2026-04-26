@@ -14,8 +14,11 @@ from pydantic import BaseModel, Field
 PipelineStatus = Literal[
     "pending",
     "extracting",
+    "extracted",
     "validating",
+    "validated",
     "routing",
+    "routed",
     "storing",
     "complete",
     "failed",
@@ -26,6 +29,7 @@ class PipelineState(BaseModel):
     # Input
     document_url: str
     raw_text: str = ""
+    field_schema: list[dict[str, Any]] = Field(default_factory=list)
     customer_rule_set: dict[str, Any] = Field(default_factory=dict)
     shipment_id: str | None = None
     document_name: str | None = None
@@ -33,6 +37,8 @@ class PipelineState(BaseModel):
 
     # Extractor output
     extracted_fields: dict[str, Any] = Field(default_factory=dict)
+    extraction_metadata: dict[str, Any] = Field(default_factory=dict)
+    low_confidence_fields: list[str] = Field(default_factory=list)
 
     # Validator output
     validation_report: dict[str, Any] = Field(default_factory=dict)

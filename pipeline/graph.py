@@ -69,15 +69,37 @@ def _decision_alias(outcome: str) -> str:
     return mapping.get(outcome, outcome)
 
 
+def _field_schema_from_rules(rule_set: dict[str, Any]) -> list[dict[str, Any]]:
+    fields = rule_set.get("fields", {})
+    return [
+        {
+            "name": field_name,
+            "description": rule.get("description"),
+            "required": bool(rule.get("required", True)),
+            "aliases": rule.get("aliases", []),
+        }
+        for field_name, rule in fields.items()
+    ]
+
+
 @observe(name="nova.extractor_node")
 def extractor_node(state: PipelineState | dict[str, Any]) -> dict[str, Any]:
     current = _coerce_state(state)
     try:
-        extracted_fields = run_extractor(current.document_url)
+        rule_set = current.customer_rule_set or CUSTOMER_RULE_SET
+        field_schema = current.field_schema or _field_schema_from_rules(rule_set)
+        extraction_result = run_extractor(current.document_url, field_schema=field_schema)
+        extraction_metadata = extraction_result["metadata"]
         return {
-            "pipeline_status": "extracting",
+            "pipeline_status": "extracted",
             "raw_text": current.raw_text or _parse_pdf_text(current.document_url),
-            "extracted_fields": extracted_fields,
+            "field_schema": field_schema,
+            "extracted_fields": extraction_result["fields"],
+            "extraction_metadata": extraction_metadata,
+            "low_confidence_fields": extraction_metadata.get(
+                "persistent_low_confidence_fields",
+                [],
+            ),
             "error": None,
         }
     except Exception as exc:
@@ -91,7 +113,7 @@ def validator_node(state: PipelineState | dict[str, Any]) -> dict[str, Any]:
         rule_set = current.customer_rule_set or CUSTOMER_RULE_SET
         validation_report = run_validator(current.extracted_fields, rule_set=rule_set)
         return {
-            "pipeline_status": "validating",
+            "pipeline_status": "validated",
             "validation_report": validation_report,
             "error": None,
         }
@@ -105,7 +127,7 @@ def router_node(state: PipelineState | dict[str, Any]) -> dict[str, Any]:
     try:
         decision_report = run_router(current.validation_report)
         return {
-            "pipeline_status": "routing",
+            "pipeline_status": "routed",
             "decision": _decision_alias(decision_report["outcome"]),
             "reasoning": decision_report["explanation"],
             "amendment_draft": decision_report.get("amendment_request") or "",
@@ -179,6 +201,7 @@ def run_pipeline(
         shipment_id=shipment_id,
         storage_db_path=db_path,
         customer_rule_set=customer_rule_set or CUSTOMER_RULE_SET,
+        field_schema=_field_schema_from_rules(customer_rule_set or CUSTOMER_RULE_SET),
     )
     result = app.invoke(_model_to_dict(initial_state))
     return _model_to_dict(_coerce_state(result))
