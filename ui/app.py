@@ -154,6 +154,7 @@ def _render_query_box() -> None:
 
         st.write(result["answer"])
         with st.expander("Grounding SQL and rows"):
+            st.caption(f"Query planner: {result['query_source']}")
             st.code(result["sql"], language="sql")
             st.dataframe(result["rows"], width="stretch")
 
