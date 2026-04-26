@@ -49,7 +49,7 @@ def _save_upload(uploaded_file: Any) -> str:
 
 def _run_pipeline(document_path: str, document_name: str, shipment_id: str | None) -> dict[str, Any]:
     with st.status("Running Nova pipeline...", expanded=True) as status:
-        st.write("LangGraph is running extractor -> validator -> router -> storage")
+        st.write("LangGraph is running extractor -> validator -> auditor -> storage")
         state = run_langgraph_pipeline(
             document_path,
             shipment_id=shipment_id,
@@ -109,6 +109,10 @@ def _render_results(state: dict[str, Any]) -> None:
     st.write(state["reasoning"])
     st.caption(f"Stored run id: {state['storage_id']}")
 
+    if state.get("decision_audit_report"):
+        st.subheader("Decision Audit Report")
+        st.write(state["decision_audit_report"])
+
     if state.get("amendment_draft"):
         st.subheader("Draft Amendment Request")
         st.text_area(
@@ -159,7 +163,7 @@ def main() -> None:
 
     st.set_page_config(page_title="Nova Trade-Doc Pipeline", layout="wide")
     st.title("Nova Trade-Doc Pipeline")
-    st.caption("Upload one PDF/image and run extractor -> validator -> router -> storage.")
+    st.caption("Upload one PDF/image and run extractor -> validator -> auditor -> storage.")
 
     if not os.getenv("OPENAI_API_KEY"):
         st.warning("OPENAI_API_KEY is not set. Add it to `.env` or your shell before running.")

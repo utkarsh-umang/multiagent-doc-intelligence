@@ -45,11 +45,13 @@ class PipelineState(BaseModel):
     validation_report: dict[str, Any] = Field(default_factory=dict)
     validation_metadata: dict[str, Any] = Field(default_factory=dict)
 
-    # Router output
+    # Auditor output
     decision: str = ""
     reasoning: str = ""
+    decision_audit_report: str = ""
     amendment_draft: str = ""
     decision_report: dict[str, Any] = Field(default_factory=dict)
+    auditor_metadata: dict[str, Any] = Field(default_factory=dict)
 
     # Storage output
     storage_id: str | None = None

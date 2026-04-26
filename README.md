@@ -2,7 +2,7 @@
 
 Scaffolded project structure:
 
-- `agents/`: agent implementations (extract/validate/route)
+- `agents/`: agent implementations (extract/validate/audit)
 - `pipeline/`: graph + shared state schema
 - `storage/`: DuckDB + query layer
 - `ui/`: Streamlit app
@@ -19,6 +19,7 @@ OPENAI_API_KEY=...
 LITELLM_VISION_MODEL=gpt-4o
 ANTHROPIC_API_KEY=...
 VALIDATOR_MODEL=anthropic/claude-3-5-sonnet-20241022
+AUDITOR_MODEL=gpt-4o
 LANGFUSE_PUBLIC_KEY=...
 LANGFUSE_SECRET_KEY=...
 LANGFUSE_HOST=https://cloud.langfuse.com

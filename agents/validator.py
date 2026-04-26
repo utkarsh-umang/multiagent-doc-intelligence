@@ -59,6 +59,12 @@ class ValidationMetadata(BaseModel):
     semantic_errors: dict[str, str] = Field(default_factory=dict)
 
 
+class DiscrepancySummary(BaseModel):
+    matched_fields: list[str] = Field(default_factory=list)
+    mismatched_fields: list[str] = Field(default_factory=list)
+    uncertain_fields: list[str] = Field(default_factory=list)
+
+
 class ValidationReport(BaseModel):
     customer_id: str
     customer_name: str
@@ -66,6 +72,9 @@ class ValidationReport(BaseModel):
     has_mismatches: bool
     has_uncertain: bool
     fields: dict[str, FieldValidationResult]
+    discrepancy_summary: DiscrepancySummary
+    evidence_summary: list[str] = Field(default_factory=list)
+    compliance_notes: list[str] = Field(default_factory=list)
     metadata: ValidationMetadata
 
 
@@ -169,6 +178,7 @@ class ValidatorAgent:
             overall_status = "failed"
         else:
             overall_status = "passed"
+        discrepancy_summary = self._build_discrepancy_summary(results)
 
         return ValidationReport(
             customer_id=self.rule_set["customer_id"],
@@ -177,6 +187,9 @@ class ValidatorAgent:
             has_mismatches=has_mismatches,
             has_uncertain=has_uncertain,
             fields=results,
+            discrepancy_summary=discrepancy_summary,
+            evidence_summary=self._build_evidence_summary(results),
+            compliance_notes=self._build_compliance_notes(metadata),
             metadata=metadata,
         )
 
@@ -612,6 +625,57 @@ class ValidatorAgent:
             ),
             source_snippet=current.source_snippet,
         )
+
+    def _build_discrepancy_summary(
+        self,
+        results: dict[str, FieldValidationResult],
+    ) -> DiscrepancySummary:
+        return DiscrepancySummary(
+            matched_fields=[
+                field_name
+                for field_name, result in results.items()
+                if result.status == ValidationStatus.MATCH
+            ],
+            mismatched_fields=[
+                field_name
+                for field_name, result in results.items()
+                if result.status == ValidationStatus.MISMATCH
+            ],
+            uncertain_fields=[
+                field_name
+                for field_name, result in results.items()
+                if result.status == ValidationStatus.UNCERTAIN
+            ],
+        )
+
+    def _build_evidence_summary(
+        self,
+        results: dict[str, FieldValidationResult],
+    ) -> list[str]:
+        summary: list[str] = []
+        for field_name, result in results.items():
+            field_label = field_name.replace("_", " ")
+            summary.append(
+                f"{field_label}: {result.status.value}; found={result.found or 'missing'}; "
+                f"reason={result.reason}"
+            )
+        return summary
+
+    def _build_compliance_notes(self, metadata: ValidationMetadata) -> list[str]:
+        notes: list[str] = []
+        seen: set[str] = set()
+        for contexts in metadata.retrieved_context.values():
+            for item in contexts:
+                if item.get("source") != "country_compliance":
+                    continue
+                country = item.get("country")
+                direction = item.get("direction")
+                for note in item.get("data", {}).get("notes", []):
+                    formatted = f"{country} {direction}: {note}"
+                    if formatted not in seen:
+                        notes.append(formatted)
+                        seen.add(formatted)
+        return notes
 
     def _result(
         self,

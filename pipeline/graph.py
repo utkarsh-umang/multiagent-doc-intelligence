@@ -10,8 +10,8 @@ from typing import Any
 from langfuse import observe  # type: ignore[import-not-found]
 from langgraph.graph import END, START, StateGraph  # type: ignore[import-not-found]
 
+from agents.auditor import run as run_auditor
 from agents.extractor import run as run_extractor
-from agents.router import run as run_router
 from agents.validator import run as run_validator
 from pipeline.state import PipelineState
 from rules.customer_rules import CUSTOMER_RULE_SET
@@ -127,17 +127,19 @@ def validator_node(state: PipelineState | dict[str, Any]) -> dict[str, Any]:
         return _failed_update(exc)
 
 
-@observe(name="nova.router_node")
-def router_node(state: PipelineState | dict[str, Any]) -> dict[str, Any]:
+@observe(name="nova.auditor_node")
+def auditor_node(state: PipelineState | dict[str, Any]) -> dict[str, Any]:
     current = _coerce_state(state)
     try:
-        decision_report = run_router(current.validation_report)
+        decision_report = run_auditor(current.validation_report)
         return {
             "pipeline_status": "routed",
             "decision": _decision_alias(decision_report["outcome"]),
             "reasoning": decision_report["explanation"],
+            "decision_audit_report": decision_report["decision_audit_report"],
             "amendment_draft": decision_report.get("amendment_request") or "",
             "decision_report": decision_report,
+            "auditor_metadata": decision_report.get("metadata", {}),
             "error": None,
         }
     except Exception as exc:
@@ -169,7 +171,7 @@ def build_graph():
     graph = StateGraph(PipelineState)
     graph.add_node("extractor", extractor_node)
     graph.add_node("validator", validator_node)
-    graph.add_node("router", router_node)
+    graph.add_node("auditor", auditor_node)
     graph.add_node("storage", storage_node)
 
     graph.add_edge(START, "extractor")
@@ -181,10 +183,10 @@ def build_graph():
     graph.add_conditional_edges(
         "validator",
         _next_or_end,
-        {"continue": "router", "failed": END},
+        {"continue": "auditor", "failed": END},
     )
     graph.add_conditional_edges(
-        "router",
+        "auditor",
         _next_or_end,
         {"continue": "storage", "failed": END},
     )
