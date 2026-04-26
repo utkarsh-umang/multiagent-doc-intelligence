@@ -1,0 +1,13 @@
+services:
+  nova:
+    build: .
+    container_name: nova-trade-doc-pipeline
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env
+    environment:
+      NOVA_DB_PATH: /app/data/app.duckdb
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

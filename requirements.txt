@@ -1,0 +1,9 @@
+streamlit
+pydantic
+duckdb
+PyMuPDF
+litellm
+langgraph
+langfuse
+python-dotenv
+
