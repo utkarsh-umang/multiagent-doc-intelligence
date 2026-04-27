@@ -58,8 +58,9 @@ CUSTOMER_RULE_SET = {
         },
         "invoice_number": {
             "type": "regex",
-            "expected": r"^[A-Z]{2,5}[-/]?\d{4,}$",
-            "description": "2-5 uppercase letters followed by at least 4 digits",
+            # e.g. SHAUTO20240431 (6-letter prefix) — allow typical vendor code lengths
+            "expected": r"^[A-Z]{2,10}[-/]?\d{4,}$",
+            "description": "2-10 uppercase letters, optional - or /, then at least 4 digits",
             "required": True,
         },
     },
