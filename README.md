@@ -12,18 +12,14 @@ Scaffolded project structure:
 
 ## Run With Docker
 
-Create/update `.env` with your model and tracing keys:
+Copy `env.example` to `.env`, then set your model + tracing keys:
 
 ```bash
-OPENAI_API_KEY=...
-LITELLM_VISION_MODEL=gpt-4o
-ANTHROPIC_API_KEY=...
-VALIDATOR_MODEL=anthropic/claude-3-5-sonnet-20240620
-AUDITOR_MODEL=gpt-4o
-LANGFUSE_PUBLIC_KEY=...
-LANGFUSE_SECRET_KEY=...
-LANGFUSE_HOST=https://cloud.langfuse.com
+cp env.example .env
 ```
+
+Edit `.env` and fill in at least `OPENAI_API_KEY` (and/or `ANTHROPIC_API_KEY`, `GOOGLE_AI_API_KEY`).
+Optional: override models via `LITELLM_VISION_MODEL`, `VALIDATOR_MODEL`, `AUDITOR_MODEL`, and configure Langfuse via `LANGFUSE_*`.
 
 Then run:
 
