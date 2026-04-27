@@ -28,15 +28,36 @@ def _field_value(extracted_fields: dict[str, Any], field_name: str) -> str | Non
     return str(value) if value is not None else None
 
 
+_UNLOCODE_TOKEN_RE = re.compile(r"\b[A-Z]{2}[A-Z0-9]{3}\b")
+
+
+def _word_bounded_contains(haystack: str, needle: str) -> bool:
+    if not needle:
+        return False
+    return re.search(rf"(?<![\w]){re.escape(needle)}(?![\w])", haystack) is not None
+
+
 def resolve_port(value: str | None, master_data: dict[str, Any] | None = None) -> dict[str, Any] | None:
-    """Resolve a port from canonical names, aliases, or UN/LOCODE."""
+    """Resolve a port from canonical names, aliases, or UN/LOCODE.
+
+    Tolerates real-world Bill of Lading formats such as
+    ``"SHANGHAI, CHINA (CNSHA)"`` or ``"NHAVA SHEVA (JNPT), INDIA"`` by:
+
+    1. Exact normalized equality against canonical name / unlocode / aliases.
+    2. Any UN/LOCODE-shaped token in the value matching a port's unlocode
+       (or an alias, since aliases sometimes carry the code).
+    3. Whole-word (token-bounded) substring match of any candidate against
+       the normalized value.
+    """
 
     if not value:
         return None
 
     data = master_data or MASTER_DATA
+    ports = data.get("ports", {})
     needle = _normalize(value)
-    for canonical_name, payload in data.get("ports", {}).items():
+
+    for canonical_name, payload in ports.items():
         candidates = [
             canonical_name,
             payload.get("unlocode"),
@@ -44,6 +65,28 @@ def resolve_port(value: str | None, master_data: dict[str, Any] | None = None) -
         ]
         if any(_normalize(candidate) == needle for candidate in candidates if candidate):
             return {"name": canonical_name, **payload}
+
+    unlocode_tokens = {tok.upper() for tok in _UNLOCODE_TOKEN_RE.findall(value.upper())}
+    if unlocode_tokens:
+        for canonical_name, payload in ports.items():
+            unlocode = (payload.get("unlocode") or "").upper()
+            aliases_upper = {str(a).upper() for a in payload.get("aliases", [])}
+            if unlocode and unlocode in unlocode_tokens:
+                return {"name": canonical_name, **payload}
+            if unlocode_tokens & aliases_upper:
+                return {"name": canonical_name, **payload}
+
+    for canonical_name, payload in ports.items():
+        candidates = [canonical_name, *payload.get("aliases", [])]
+        for candidate in candidates:
+            if not candidate:
+                continue
+            normalized_candidate = _normalize(candidate)
+            if len(normalized_candidate) < 3:
+                continue
+            if _word_bounded_contains(needle, normalized_candidate):
+                return {"name": canonical_name, **payload}
+
     return None
 
 

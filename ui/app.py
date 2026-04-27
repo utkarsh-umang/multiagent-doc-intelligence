@@ -4,6 +4,7 @@ Minimal Streamlit UI for running the Nova pipeline on one document.
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import tempfile
@@ -64,6 +65,26 @@ def _run_pipeline(document_path: str, document_name: str, shipment_id: str | Non
     return state
 
 
+def _df_cell(value: Any) -> str:
+    """Serialize cell values for Streamlit DataFrames; avoids PyArrow errors on str/list mixes."""
+
+    if value is None:
+        return ""
+    if isinstance(value, (list, tuple, set)):
+        return ", ".join(str(x) for x in value)
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False, default=str)
+    return str(value)
+
+
+def _issue_dict(issue: Any) -> dict[str, Any]:
+    if isinstance(issue, dict):
+        return issue
+    if hasattr(issue, "model_dump"):
+        return issue.model_dump()
+    return issue.dict()  # type: ignore[no-any-return]
+
+
 def _extraction_rows(extracted: dict[str, Any]) -> list[dict[str, Any]]:
     rows = []
     for field_name, payload in extracted.items():
@@ -85,10 +106,26 @@ def _validation_rows(validation_report: dict[str, Any]) -> list[dict[str, Any]]:
             {
                 "field": field_name,
                 "status": payload.get("status"),
-                "found": payload.get("found"),
-                "expected": payload.get("expected"),
+                "found": _df_cell(payload.get("found")) or None,
+                "expected": _df_cell(payload.get("expected")),
                 "confidence": payload.get("confidence"),
                 "reason": payload.get("reason"),
+            }
+        )
+    return rows
+
+
+def _human_review_rows(issues: list[Any]) -> list[dict[str, Any]]:
+    rows = []
+    for issue in issues:
+        d = _issue_dict(issue)
+        rows.append(
+            {
+                "field": d.get("field"),
+                "status": d.get("status"),
+                "found": _df_cell(d.get("found")) or None,
+                "expected": _df_cell(d.get("expected")),
+                "reason": d.get("reason"),
             }
         )
     return rows
@@ -123,7 +160,10 @@ def _render_results(state: dict[str, Any]) -> None:
 
     if decision_report.get("human_review_reasons"):
         st.subheader("Human Review Reasons")
-        st.dataframe(decision_report["human_review_reasons"], width="stretch")
+        st.dataframe(
+            _human_review_rows(decision_report["human_review_reasons"]),
+            width="stretch",
+        )
 
     st.subheader("Extracted Fields")
     st.dataframe(_extraction_rows(state["extracted_fields"]), width="stretch")

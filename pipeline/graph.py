@@ -4,12 +4,28 @@ LangGraph orchestration for the Nova document pipeline.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 import re
 import uuid
 
-from langfuse import observe  # type: ignore[import-not-found]
+_USE_LANGFUSE_DECORATORS = os.getenv("NOVA_LANGFUSE_DECORATORS", "").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+
+if _USE_LANGFUSE_DECORATORS:
+    from langfuse import observe  # type: ignore[import-not-found]
+else:
+    def observe(*_args: Any, **_kwargs: Any):  # type: ignore[misc]
+        def _decorator(fn):
+            return fn
+
+        return _decorator
+
 from langgraph.graph import END, START, StateGraph  # type: ignore[import-not-found]
 
 from agents.auditor import run as run_auditor

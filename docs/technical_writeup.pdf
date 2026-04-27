@@ -1,3 +1,415 @@
-PLACEHOLDER FILE
-Replace with the real `technical_writeup.pdf`.
-
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [6 0 R 8 0 R 10 0 R 12 0 R] /Count 4 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> /Contents 7 0 R >>
+endobj
+7 0 obj
+<< /Length 3585 >>
+stream
+BT
+/F2 18 Tf 54 744 Td (Nova Technical Writeup) Tj
+-54 -744 Td
+/F1 10 Tf 54 726 Td (Agentic Trade-Doc Automation for GoComet Nova) Tj
+-54 -726 Td
+/F1 10 Tf 54 713 Td (This writeup explains the current POC architecture, operational risks, observability plan, ) Tj
+-54 -713 Td
+/F1 10 Tf 54 700 Td (cost/latency profile, and what I would improve with more time.) Tj
+-54 -700 Td
+/F1 10 Tf 54 687 Td () Tj
+-54 -687 Td
+/F2 13 Tf 54 674 Td (1. Architecture Diagram) Tj
+-54 -674 Td
+/F1 10 Tf 54 656 Td (Data flow and state ownership:) Tj
+-54 -656 Td
+/F1 10 Tf 54 643 Td () Tj
+-54 -643 Td
+/F3 10 Tf 54 630 Td (+-----------------------------+) Tj
+-54 -630 Td
+/F3 10 Tf 54 617 Td (| Email / Upload              |) Tj
+-54 -617 Td
+/F3 10 Tf 54 604 Td (| PDF or image attachment     |) Tj
+-54 -604 Td
+/F3 10 Tf 54 591 Td (+-----------------------------+) Tj
+-54 -591 Td
+/F3 10 Tf 54 578 Td (              |) Tj
+-54 -578 Td
+/F3 10 Tf 54 565 Td (              v) Tj
+-54 -565 Td
+/F3 10 Tf 54 552 Td (+-----------------------------+) Tj
+-54 -552 Td
+/F3 10 Tf 54 539 Td (| Extractor                   |) Tj
+-54 -539 Td
+/F3 10 Tf 54 526 Td (| GPT-4o vision               |) Tj
+-54 -526 Td
+/F3 10 Tf 54 513 Td (| Output: extracted_fields    |) Tj
+-54 -513 Td
+/F3 10 Tf 54 500 Td (| State: extraction_metadata  |) Tj
+-54 -500 Td
+/F3 10 Tf 54 487 Td (+-----------------------------+) Tj
+-54 -487 Td
+/F3 10 Tf 54 474 Td (              |) Tj
+-54 -474 Td
+/F3 10 Tf 54 461 Td (              v) Tj
+-54 -461 Td
+/F3 10 Tf 54 448 Td (+-----------------------------+) Tj
+-54 -448 Td
+/F3 10 Tf 54 435 Td (| Validator                   |) Tj
+-54 -435 Td
+/F3 10 Tf 54 422 Td (| Claude + rules + retrieval  |) Tj
+-54 -422 Td
+/F3 10 Tf 54 409 Td (| Output: validation_report   |) Tj
+-54 -409 Td
+/F3 10 Tf 54 396 Td (| State: validation_metadata  |) Tj
+-54 -396 Td
+/F3 10 Tf 54 383 Td (+-----------------------------+) Tj
+-54 -383 Td
+/F3 10 Tf 54 370 Td (              |) Tj
+-54 -370 Td
+/F3 10 Tf 54 357 Td (              v) Tj
+-54 -357 Td
+/F3 10 Tf 54 344 Td (+-----------------------------+) Tj
+-54 -344 Td
+/F3 10 Tf 54 331 Td (| Auditor                     |) Tj
+-54 -331 Td
+/F3 10 Tf 54 318 Td (| GPT-4o decision report      |) Tj
+-54 -318 Td
+/F3 10 Tf 54 305 Td (| Output: decision_report     |) Tj
+-54 -305 Td
+/F3 10 Tf 54 292 Td (| State: auditor_metadata     |) Tj
+-54 -292 Td
+/F3 10 Tf 54 279 Td (+-----------------------------+) Tj
+-54 -279 Td
+/F3 10 Tf 54 266 Td (              |) Tj
+-54 -266 Td
+/F3 10 Tf 54 253 Td (              v) Tj
+-54 -253 Td
+/F3 10 Tf 54 240 Td (+-----------------------------+) Tj
+-54 -240 Td
+/F3 10 Tf 54 227 Td (| Outcome branch              |) Tj
+-54 -227 Td
+/F3 10 Tf 54 214 Td (| auto / review / amendment   |) Tj
+-54 -214 Td
+/F3 10 Tf 54 201 Td (+-----------------------------+) Tj
+-54 -201 Td
+/F3 10 Tf 54 188 Td (              |) Tj
+-54 -188 Td
+/F3 10 Tf 54 175 Td (              v) Tj
+-54 -175 Td
+/F3 10 Tf 54 162 Td (+-----------------------------+) Tj
+-54 -162 Td
+/F3 10 Tf 54 149 Td (| Storage + UI                |) Tj
+-54 -149 Td
+/F3 10 Tf 54 136 Td (| DuckDB + Streamlit          |) Tj
+-54 -136 Td
+/F3 10 Tf 54 123 Td (+-----------------------------+) Tj
+-54 -123 Td
+/F1 10 Tf 54 110 Td () Tj
+-54 -110 Td
+/F1 10 Tf 54 97 Td (PipelineState carries the live state between nodes. After every node, a JSON checkpoint is ) Tj
+-54 -97 Td
+/F1 10 Tf 54 84 Td (appended under data/checkpoints. Final queryable output is stored in DuckDB as ) Tj
+-54 -84 Td
+/F1 10 Tf 54 71 Td (extracted_json, validation_json, and decision_json.) Tj
+-54 -71 Td
+/F1 10 Tf 54 58 Td () Tj
+-54 -58 Td
+ET
+endstream
+endobj
+8 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> /Contents 9 0 R >>
+endobj
+9 0 obj
+<< /Length 5042 >>
+stream
+BT
+/F1 10 Tf 54 744 Td (LangGraph sequence: START -> extractor -> validator -> auditor -> outcome branch -> storage ) Tj
+-54 -744 Td
+/F1 10 Tf 54 731 Td (-> END.) Tj
+-54 -731 Td
+/F1 10 Tf 54 718 Td (Auditor conditional branches: auto_approve -> auto_approve_branch; flag_review -> ) Tj
+-54 -718 Td
+/F1 10 Tf 54 705 Td (human_review_branch; amendment -> amendment_branch. All branches persist to storage in this ) Tj
+-54 -705 Td
+/F1 10 Tf 54 692 Td (POC.) Tj
+-54 -692 Td
+/F1 10 Tf 54 679 Td () Tj
+-54 -679 Td
+/F2 13 Tf 54 666 Td (2. Three Nasty Failure Modes) Tj
+-54 -666 Td
+/F1 10 Tf 54 648 Td (Failure mode 1: bad or malformed documents.) Tj
+-54 -648 Td
+/F1 10 Tf 54 635 Td (Real example from testing: docs/technical_writeup.pdf was not a valid PDF before this ) Tj
+-54 -635 Td
+/F1 10 Tf 54 622 Td (update. ReadFile reported Invalid PDF structure. In the actual pipeline, this class of ) Tj
+-54 -622 Td
+/F1 10 Tf 54 609 Td (problem can happen when an email attachment is corrupt, renamed incorrectly, or scanned ) Tj
+-54 -609 Td
+/F1 10 Tf 54 596 Td (badly. The Extractor should fail loudly rather than invent fields. The graph records a ) Tj
+-54 -596 Td
+/F1 10 Tf 54 583 Td (failed checkpoint with pipeline_status=failed and the exception string, so the operator can ) Tj
+-54 -583 Td
+/F1 10 Tf 54 570 Td (see where the run stopped.) Tj
+-54 -570 Td
+/F1 10 Tf 54 557 Td () Tj
+-54 -557 Td
+/F1 10 Tf 54 544 Td (Failure mode 2: model/runtime dependency failure.) Tj
+-54 -544 Td
+/F1 10 Tf 54 531 Td (Real example from testing: a local smoke test could not run because the active Python ) Tj
+-54 -531 Td
+/F1 10 Tf 54 518 Td (interpreter was missing pydantic, and an earlier run was missing litellm. That is exactly ) Tj
+-54 -518 Td
+/F1 10 Tf 54 505 Td (the production risk if a worker image is built incorrectly or a provider SDK is absent. The ) Tj
+-54 -505 Td
+/F1 10 Tf 54 492 Td (mitigation is to compile/lint in CI, run a dependency health check at startup, and keep ) Tj
+-54 -492 Td
+/F1 10 Tf 54 479 Td (deterministic fallbacks in Validator and Auditor. If GPT-4o cannot write the Auditor report,) Tj
+-54 -479 Td
+/F1 10 Tf 54 466 Td ( the system still returns a deterministic explanation and records fallback_error in ) Tj
+-54 -466 Td
+/F1 10 Tf 54 453 Td (auditor_metadata.) Tj
+-54 -453 Td
+/F1 10 Tf 54 440 Td () Tj
+-54 -440 Td
+/F1 10 Tf 54 427 Td (Failure mode 3: stale orchestration names and hidden state mismatch.) Tj
+-54 -427 Td
+/F1 10 Tf 54 414 Td (Real example from testing: after renaming Router to Auditor, the graph still had ) Tj
+-54 -414 Td
+/F1 10 Tf 54 401 Td (routed/routing status language until we searched for stale references and cleaned it up. ) Tj
+-54 -401 Td
+/F1 10 Tf 54 388 Td (This is dangerous because dashboards and checkpoint recovery depend on status names. The ) Tj
+-54 -388 Td
+/F1 10 Tf 54 375 Td (mitigation is a strict PipelineStatus enum, rg checks for stale terms, and checkpoint ) Tj
+-54 -375 Td
+/F1 10 Tf 54 362 Td (entries that make every node transition visible.) Tj
+-54 -362 Td
+/F1 10 Tf 54 349 Td () Tj
+-54 -349 Td
+/F2 13 Tf 54 336 Td (3. Observability) Tj
+-54 -336 Td
+/F1 10 Tf 54 318 Td (To trace one shipment from email to verified output in production for 50 customers, every ) Tj
+-54 -318 Td
+/F1 10 Tf 54 305 Td (run needs a stable shipment_id/correlation_id propagated through email ingestion, LangGraph ) Tj
+-54 -305 Td
+/F1 10 Tf 54 292 Td (state, model calls, checkpoints, DuckDB rows, and Langfuse traces.) Tj
+-54 -292 Td
+/F1 10 Tf 54 279 Td () Tj
+-54 -279 Td
+/F1 10 Tf 54 266 Td (Trace path for one shipment:) Tj
+-54 -266 Td
+/F1 10 Tf 54 253 Td (1. Email ingestion receives attachment and creates shipment_id.) Tj
+-54 -253 Td
+/F1 10 Tf 54 240 Td (2. Extractor checkpoint records document path, extracted_fields, confidence scores, retries,) Tj
+-54 -240 Td
+/F1 10 Tf 54 227 Td ( and low confidence fields.) Tj
+-54 -227 Td
+/F1 10 Tf 54 214 Td (3. Validator checkpoint records field statuses, discrepancy_summary, compliance_notes, ) Tj
+-54 -214 Td
+/F1 10 Tf 54 201 Td (semantic checks, retrieval context, and fallback errors.) Tj
+-54 -201 Td
+/F1 10 Tf 54 188 Td (4. Auditor checkpoint records outcome, policy_path, decision_audit_report, amendment email ) Tj
+-54 -188 Td
+/F1 10 Tf 54 175 Td (if any, and issues considered.) Tj
+-54 -175 Td
+/F1 10 Tf 54 162 Td (5. Storage persists extracted_json, validation_json, and decision_json in DuckDB.) Tj
+-54 -162 Td
+/F1 10 Tf 54 149 Td () Tj
+-54 -149 Td
+/F1 10 Tf 54 136 Td (Production dashboard:) Tj
+-54 -136 Td
+/F1 10 Tf 54 123 Td (- Straight-through processing rate by customer and lane.) Tj
+-54 -123 Td
+/F1 10 Tf 54 110 Td (- Amendment rate and human review rate by customer.) Tj
+-54 -110 Td
+/F1 10 Tf 54 97 Td (- Pipeline failures by node: extractor, validator, auditor, storage.) Tj
+-54 -97 Td
+/F1 10 Tf 54 84 Td (- Low-confidence fields by document type and vendor.) Tj
+-54 -84 Td
+/F1 10 Tf 54 71 Td (- Model fallback/error rate by provider.) Tj
+-54 -71 Td
+/F1 10 Tf 54 58 Td (- Cost per document and token/image spend per node.) Tj
+-54 -58 Td
+ET
+endstream
+endobj
+10 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> /Contents 11 0 R >>
+endobj
+11 0 obj
+<< /Length 4601 >>
+stream
+BT
+/F1 10 Tf 54 744 Td (- Latency p50/p95/p99 per node.) Tj
+-54 -744 Td
+/F1 10 Tf 54 731 Td (- Top mismatch reasons and fields causing manual review.) Tj
+-54 -731 Td
+/F1 10 Tf 54 718 Td () Tj
+-54 -718 Td
+/F2 13 Tf 54 705 Td (4. Cost) Tj
+-54 -705 Td
+/F1 10 Tf 54 687 Td (Back-of-envelope POC cost per document:) Tj
+-54 -687 Td
+/F1 10 Tf 54 674 Td (- Extractor: GPT-4o vision over 1-4 rendered pages. This is the dominant cost, roughly ) Tj
+-54 -674 Td
+/F1 10 Tf 54 661 Td ($0.01-$0.04 depending on page count and image detail.) Tj
+-54 -661 Td
+/F1 10 Tf 54 648 Td (- Extractor retry: only low-confidence fields are retried, so normal cost is near zero, but ) Tj
+-54 -648 Td
+/F1 10 Tf 54 635 Td (bad scans can add another small model call.) Tj
+-54 -635 Td
+/F1 10 Tf 54 622 Td (- Validator: mostly deterministic Python. Claude is only used for semantic field checks such) Tj
+-54 -622 Td
+/F1 10 Tf 54 609 Td ( as goods description, roughly fractions of a cent to a few cents depending on context size.) Tj
+-54 -609 Td
+/F1 10 Tf 54 596 Td (- Auditor: one GPT-4o JSON audit report call for every case, plus one free-form amendment ) Tj
+-54 -596 Td
+/F1 10 Tf 54 583 Td (draft call only for amendment cases.) Tj
+-54 -583 Td
+/F1 10 Tf 54 570 Td () Tj
+-54 -570 Td
+/F1 10 Tf 54 557 Td (Expected target remains below about $0.05/document for common 1-2 page documents. It blows ) Tj
+-54 -557 Td
+/F1 10 Tf 54 544 Td (up when documents are long, scans are poor, every field retries, retrieval context is too ) Tj
+-54 -544 Td
+/F1 10 Tf 54 531 Td (large, or the Auditor is asked to summarize huge raw payloads.) Tj
+-54 -531 Td
+/F1 10 Tf 54 518 Td () Tj
+-54 -518 Td
+/F1 10 Tf 54 505 Td (Controls:) Tj
+-54 -505 Td
+/F1 10 Tf 54 492 Td (- Cap max pages rendered for the Extractor.) Tj
+-54 -492 Td
+/F1 10 Tf 54 479 Td (- Retry only low-confidence fields, never the full document unless needed.) Tj
+-54 -479 Td
+/F1 10 Tf 54 466 Td (- Keep Validator retrieval field-scoped.) Tj
+-54 -466 Td
+/F1 10 Tf 54 453 Td (- Summarize validation_report before Auditor if it grows.) Tj
+-54 -453 Td
+/F1 10 Tf 54 440 Td (- Cache known vendor layouts and port/master-data lookups.) Tj
+-54 -440 Td
+/F1 10 Tf 54 427 Td (- Track cost per node in Langfuse and alert on anomalies.) Tj
+-54 -427 Td
+/F1 10 Tf 54 414 Td () Tj
+-54 -414 Td
+/F2 13 Tf 54 401 Td (5. Latency) Tj
+-54 -401 Td
+/F1 10 Tf 54 383 Td (The slowest hop is the Extractor vision call because PDFs must be rendered to images and ) Tj
+-54 -383 Td
+/F1 10 Tf 54 370 Td (sent to GPT-4o vision. The second slowest hop is the Auditor if it generates both decision ) Tj
+-54 -370 Td
+/F1 10 Tf 54 357 Td (audit report and amendment email.) Tj
+-54 -357 Td
+/F1 10 Tf 54 344 Td () Tj
+-54 -344 Td
+/F1 10 Tf 54 331 Td (Likely latency profile:) Tj
+-54 -331 Td
+/F1 10 Tf 54 318 Td (- PDF render: sub-second to a few seconds depending on pages.) Tj
+-54 -318 Td
+/F1 10 Tf 54 305 Td (- Extractor vision call: several seconds and grows with page count.) Tj
+-54 -305 Td
+/F1 10 Tf 54 292 Td (- Field-level retry: only triggered on low confidence.) Tj
+-54 -292 Td
+/F1 10 Tf 54 279 Td (- Validator deterministic checks: fast.) Tj
+-54 -279 Td
+/F1 10 Tf 54 266 Td (- Validator semantic check: one model call for semantic fields.) Tj
+-54 -266 Td
+/F1 10 Tf 54 253 Td (- Auditor: one report call, plus one amendment email call for mismatch cases.) Tj
+-54 -253 Td
+/F1 10 Tf 54 240 Td () Tj
+-54 -240 Td
+/F1 10 Tf 54 227 Td (Fixes:) Tj
+-54 -227 Td
+/F1 10 Tf 54 214 Td (- Use OCR/template extraction for known vendor layouts and reserve vision for unknown ) Tj
+-54 -214 Td
+/F1 10 Tf 54 201 Td (layouts.) Tj
+-54 -201 Td
+/F1 10 Tf 54 188 Td (- Parallelize independent semantic validation calls if field count grows.) Tj
+-54 -188 Td
+/F1 10 Tf 54 175 Td (- Cache port, HS, and compliance retrieval.) Tj
+-54 -175 Td
+/F1 10 Tf 54 162 Td (- Keep Auditor prompts compact by passing discrepancy summaries rather than raw documents.) Tj
+-54 -162 Td
+/F1 10 Tf 54 149 Td (- Stream UI updates from checkpoints so operators see progress before final completion.) Tj
+-54 -149 Td
+/F1 10 Tf 54 136 Td () Tj
+-54 -136 Td
+/F2 13 Tf 54 123 Td (6. If I Had A Week Instead Of A Day) Tj
+-54 -123 Td
+/F1 10 Tf 54 105 Td (1. Add real ingestion from email/S3 with a stable shipment_id and attachment metadata.) Tj
+-54 -105 Td
+/F1 10 Tf 54 92 Td (2. Replace local JSON checkpointing with a durable store such as Postgres or MongoDB while ) Tj
+-54 -92 Td
+/F1 10 Tf 54 79 Td (keeping the same state contract.) Tj
+-54 -79 Td
+/F1 10 Tf 54 66 Td (3. Add a labelled eval set of 20-30 documents and score field accuracy, confidence ) Tj
+-54 -66 Td
+ET
+endstream
+endobj
+12 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> /Contents 13 0 R >>
+endobj
+13 0 obj
+<< /Length 1035 >>
+stream
+BT
+/F1 10 Tf 54 744 Td (calibration, and routing correctness.) Tj
+-54 -744 Td
+/F1 10 Tf 54 731 Td (4. Add cross-document validation across Bill of Lading, Commercial Invoice, and Packing ) Tj
+-54 -731 Td
+/F1 10 Tf 54 718 Td (List.) Tj
+-54 -718 Td
+/F1 10 Tf 54 705 Td (5. Add a vendor-layout classifier so known layouts use cheap OCR/template extraction and ) Tj
+-54 -705 Td
+/F1 10 Tf 54 692 Td (unknown layouts fall back to GPT-4o vision.) Tj
+-54 -692 Td
+/F1 10 Tf 54 679 Td (6. Build a real rules/RAG store for customer and country compliance instead of local dummy ) Tj
+-54 -679 Td
+/F1 10 Tf 54 666 Td (dictionaries.) Tj
+-54 -666 Td
+/F1 10 Tf 54 653 Td (7. Add a feedback loop from CG overrides and edited amendment emails back into rules, ) Tj
+-54 -653 Td
+/F1 10 Tf 54 640 Td (prompts, and eval datasets.) Tj
+-54 -640 Td
+/F1 10 Tf 54 627 Td (8. Add proper CI with dependency installation, smoke tests using fake model clients, and ) Tj
+-54 -627 Td
+/F1 10 Tf 54 614 Td (contract tests for each agent output schema.) Tj
+-54 -614 Td
+ET
+endstream
+endobj
+xref
+0 14
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000135 00000 n 
+0000000205 00000 n 
+0000000280 00000 n 
+0000000348 00000 n 
+0000000494 00000 n 
+0000004131 00000 n 
+0000004277 00000 n 
+0000009371 00000 n 
+0000009519 00000 n 
+0000014173 00000 n 
+0000014321 00000 n 
+trailer
+<< /Size 14 /Root 1 0 R >>
+startxref
+15409
+%%EOF

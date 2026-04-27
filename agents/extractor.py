@@ -256,12 +256,36 @@ class ExtractorAgent:
         if not os.getenv("LANGFUSE_PUBLIC_KEY") or not os.getenv("LANGFUSE_SECRET_KEY"):
             return
 
-        callbacks = list(getattr(litellm, "success_callback", []) or [])
-        failure_callbacks = list(getattr(litellm, "failure_callback", []) or [])
-        if "langfuse" not in callbacks:
-            callbacks.append("langfuse")
-        if "langfuse" not in failure_callbacks:
-            failure_callbacks.append("langfuse")
+        # LiteLLM's legacy "langfuse" callback expects `langfuse.version` (SDK v2 only).
+        # "langfuse_otel" works with Langfuse Python SDK v3+ via OTLP (see litellm docs).
+        if not os.getenv("LANGFUSE_OTEL_HOST") and os.getenv("LANGFUSE_HOST"):
+            os.environ["LANGFUSE_OTEL_HOST"] = os.environ["LANGFUSE_HOST"]
+
+        # Local dev .env often sets OTEL_EXPORTER_OTLP_* to localhost; in Docker that
+        # points at the container, not the host — clear so Langfuse OTLP uses LANGFUSE_OTEL_HOST.
+        lf_base = (os.getenv("LANGFUSE_OTEL_HOST") or os.getenv("LANGFUSE_HOST") or "").lower()
+        if lf_base and "localhost" not in lf_base and "127.0.0.1" not in lf_base:
+            for key in (
+                "OTEL_EXPORTER_OTLP_ENDPOINT",
+                "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+            ):
+                val = (os.getenv(key) or "").lower()
+                if "localhost" in val or "127.0.0.1" in val:
+                    os.environ.pop(key, None)
+
+        _strip = ("langfuse", "langfuse_otel")
+        callbacks = [
+            c
+            for c in list(getattr(litellm, "success_callback", []) or [])
+            if c not in _strip
+        ]
+        failure_callbacks = [
+            c
+            for c in list(getattr(litellm, "failure_callback", []) or [])
+            if c not in _strip
+        ]
+        callbacks.append("langfuse_otel")
+        failure_callbacks.append("langfuse_otel")
         litellm.success_callback = callbacks
         litellm.failure_callback = failure_callbacks
 
