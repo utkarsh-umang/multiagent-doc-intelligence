@@ -28,6 +28,7 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 from inbox.processor import process_bundle  # noqa: E402
+from storage.db import answer_question  # noqa: E402
 
 # ── page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -346,6 +347,30 @@ with st.sidebar:
             st.markdown(f"**→ {_step_label}**")
         else:
             st.caption(_step_label)
+
+    st.divider()
+    with st.expander("🔍  Query Stored Runs"):
+        st.caption("Ask natural-language questions over every validated shipment in DuckDB.")
+        _nl_question = st.text_input(
+            "Question",
+            value="show me everything pending review",
+            key="sidebar_nl_question",
+            label_visibility="collapsed",
+        )
+        if st.button("Ask", key="sidebar_ask_btn", use_container_width=True):
+            if _nl_question.strip():
+                try:
+                    _qr = answer_question(_nl_question.strip(), db_path=_db_path())
+                    st.success(_qr["answer"])
+                    with st.expander("SQL + rows", expanded=False):
+                        st.caption(f"Planner: {_qr['query_source']}")
+                        st.code(_qr["sql"], language="sql")
+                        if _qr["rows"]:
+                            st.dataframe(_qr["rows"])
+                        else:
+                            st.caption("No matching rows.")
+                except Exception as _qe:
+                    st.error(f"Query failed: {_qe}")
 
 # ── state router ──────────────────────────────────────────────────────────────
 
