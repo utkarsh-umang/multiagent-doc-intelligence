@@ -1,23 +1,35 @@
 """
 Phase 2 — CG Verification Dashboard.
 
-A 4-state Streamlit screen showing the full CG validation workflow:
-  State 1: Incoming          — new SU email arrived, agent processing
-  State 2: Verified          — field-by-field verification result
-  State 3: Discrepancy Detail — drill-down on a flagged field
-  State 4: Draft Reply       — editable amendment email before CG sends
+Live pipeline integration. Two entry paths:
+  1. Simulate Sample  — runs the real pipeline on the pre-bundled sample docs
+  2. Create Custom Email — user fills a form and uploads their own documents
 
-Runs entirely on mock data — no API keys, no database required.
-Accessible at http://localhost:8501/ via the "CG Dashboard" page in the sidebar.
+Both paths call process_bundle() in-process and display real results across the
+4 validation states (incoming → verified → discrepancy detail → draft reply).
 """
 
 from __future__ import annotations
 
+import json
+import os
+import shutil
+import sys
+import tempfile
 import time
+from pathlib import Path
 from typing import Any
 
-import streamlit as st
+import streamlit as st  # type: ignore[import-not-found]
 
+# ── project root on sys.path ──────────────────────────────────────────────────
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
+from inbox.processor import process_bundle  # noqa: E402
+
+# ── page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Nova · CG Dashboard",
     page_icon="🚢",
@@ -25,232 +37,24 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ---------------------------------------------------------------------------
-# Mock data
-# ---------------------------------------------------------------------------
+# ── constants ─────────────────────────────────────────────────────────────────
+_SAMPLES_EMAIL = _PROJECT_ROOT / "inbox" / "samples" / "SU-2026-001" / "email.json"
+_SAMPLE_DOCS: list[tuple[Path, str]] = [
+    (_PROJECT_ROOT / "samples" / "clean_bill_of_lading.pdf",  "BOL-SU-2026-001.pdf"),
+    (_PROJECT_ROOT / "samples" / "messy_commercial_invoice.jpg", "INV-SU-2026-001.jpg"),
+    (_PROJECT_ROOT / "samples" / "packing_list_sample.pdf",   "PACK-SU-2026-001.pdf"),
+]
 
-MOCK_EMAIL: dict[str, Any] = {
-    "id": "email-001",
-    "from_name": "Raj Malhotra",
-    "from_addr": "raj.logistics@greenfield-exports.com",
-    "to_addr": "cg-team@gocomet.com",
-    "subject": "Shipment Documents – BOL-2026-0412 | Greenfield Exports",
-    "body": (
-        "Hi team,\n\n"
-        "Please find attached the shipment documents for our latest consignment "
-        "destined for ACME Corporation Limited, Chicago.\n\n"
-        "Attachments:\n"
-        "  • BOL-2026-0412.pdf — Bill of Lading\n"
-        "  • INVOICE-2026-0412.pdf — Commercial Invoice\n"
-        "  • PACKLIST-2026-0412.pdf — Packing List\n\n"
-        "Please confirm once validated.\n\nRegards,\nRaj Malhotra\n"
-        "Export Coordinator, Greenfield Exports"
-    ),
-    "received_at": "2026-05-07  08:31 IST",
-    "attachments": [
-        "BOL-2026-0412.pdf",
-        "INVOICE-2026-0412.pdf",
-        "PACKLIST-2026-0412.pdf",
-    ],
-    "shipment_ref": "BOL-2026-0412",
-    "customer": "ACME Corporation Limited",
+_FIELD_LABELS: dict[str, str] = {
+    "consignee_name": "Consignee Name",
+    "hs_code": "HS Code",
+    "port_of_loading": "Port of Loading",
+    "port_of_discharge": "Port of Discharge",
+    "incoterms": "Incoterms",
+    "description_of_goods": "Description of Goods",
+    "gross_weight": "Gross Weight",
+    "invoice_number": "Invoice Number",
 }
-
-MOCK_FIELDS: list[dict[str, Any]] = [
-    {
-        "field": "consignee_name",
-        "label": "Consignee Name",
-        "status": "mismatch",
-        "confidence": 0.92,
-        "found": "ACME Corp Ltd",
-        "expected": "ACME Corporation Limited",
-        "reason": (
-            "Extracted value 'ACME Corp Ltd' does not match the customer-required "
-            "legal name 'ACME Corporation Limited'. Abbreviated names are rejected "
-            "by customs for this destination."
-        ),
-        "source_snippet": (
-            "CONSIGNEE\n"
-            "ACME Corp Ltd\n"
-            "45 Trade Street, Suite 900\n"
-            "Chicago, IL 60601, USA\n"
-            "Tel: +1-312-555-0198"
-        ),
-        "doc_source": "BOL-2026-0412.pdf",
-    },
-    {
-        "field": "hs_code",
-        "label": "HS Code",
-        "status": "mismatch",
-        "confidence": 0.88,
-        "found": "8471.30",
-        "expected": "8471.30.00",
-        "reason": (
-            "HS code '8471.30' is missing the two-digit national sub-heading '00'. "
-            "Customer requires the 8-digit format for US customs filing."
-        ),
-        "source_snippet": (
-            "Description of Goods:\n"
-            "Laptop Computers – 120 units\n"
-            "HS Code: 8471.30\n"
-            "Net Weight: 420.00 KG"
-        ),
-        "doc_source": "INVOICE-2026-0412.pdf",
-    },
-    {
-        "field": "incoterms",
-        "label": "Incoterms",
-        "status": "uncertain",
-        "confidence": 0.51,
-        "found": "CIF",
-        "expected": "FOB or CIF",
-        "reason": (
-            "Value 'CIF' is within the allowed set, but extractor confidence is 0.51 "
-            "(below threshold 0.60). The term appears in a footer section with low "
-            "scan quality. Manual confirmation recommended."
-        ),
-        "source_snippet": (
-            "[Low quality scan — footer region]\n"
-            "...terms of delivery: C|F Chicago...\n"
-            "...payment terms: 30 days net..."
-        ),
-        "doc_source": "BOL-2026-0412.pdf",
-    },
-    {
-        "field": "port_of_loading",
-        "label": "Port of Loading",
-        "status": "match",
-        "confidence": 0.97,
-        "found": "Shanghai",
-        "expected": "Shanghai",
-        "reason": "Extracted value matches the required port of loading.",
-        "source_snippet": "Port of Loading: SHANGHAI, CHINA (SHA)",
-        "doc_source": "BOL-2026-0412.pdf",
-    },
-    {
-        "field": "port_of_discharge",
-        "label": "Port of Discharge",
-        "status": "match",
-        "confidence": 0.95,
-        "found": "Chicago O'Hare",
-        "expected": "Chicago",
-        "reason": "Extracted value resolved to canonical port 'Chicago' via master data.",
-        "source_snippet": "Port of Discharge: CHICAGO O'HARE ICD, USA",
-        "doc_source": "BOL-2026-0412.pdf",
-    },
-    {
-        "field": "description_of_goods",
-        "label": "Description of Goods",
-        "status": "match",
-        "confidence": 0.91,
-        "found": "Laptop Computers",
-        "expected": "Laptop Computers or Notebooks",
-        "reason": "Extracted text contains an expected goods keyword.",
-        "source_snippet": "Commodity: Laptop Computers, 120 Units, Brand: TechPro",
-        "doc_source": "INVOICE-2026-0412.pdf",
-    },
-    {
-        "field": "gross_weight",
-        "label": "Gross Weight",
-        "status": "match",
-        "confidence": 0.94,
-        "found": "468.00 KG",
-        "expected": "between 400 and 600 KG",
-        "reason": "Extracted numeric value is within the allowed range.",
-        "source_snippet": "Gross Weight: 468.00 KGS  /  Net Weight: 420.00 KGS",
-        "doc_source": "PACKLIST-2026-0412.pdf",
-    },
-    {
-        "field": "invoice_number",
-        "label": "Invoice Number",
-        "status": "match",
-        "confidence": 0.99,
-        "found": "INV-GFE-2026-0412",
-        "expected": "INV-GFE-.*",
-        "reason": "Extracted value matches the required invoice number format.",
-        "source_snippet": "Invoice No.: INV-GFE-2026-0412   Date: 05-May-2026",
-        "doc_source": "INVOICE-2026-0412.pdf",
-    },
-]
-
-MOCK_AMENDMENT_EMAIL: str = """\
-Subject: Amendment Required – Shipment BOL-2026-0412 | Greenfield Exports
-
-Dear Raj,
-
-Thank you for submitting the shipment documents for BOL-2026-0412. \
-We have completed our review and found the following discrepancies that \
-require correction before we can approve the consignment.
-
-─────────────────────────────────────────────
-DISCREPANCY 1 — Consignee Name
-  Document:  BOL-2026-0412.pdf
-  Found:     ACME Corp Ltd
-  Expected:  ACME Corporation Limited
-  Reason:    The consignee must be listed using their full legal registered name. \
-Abbreviated forms are rejected at US customs. \
-Please update the Bill of Lading to reflect 'ACME Corporation Limited'.
-
-─────────────────────────────────────────────
-DISCREPANCY 2 — HS Code
-  Document:  INVOICE-2026-0412.pdf
-  Found:     8471.30
-  Expected:  8471.30.00
-  Reason:    The US customs filing requires the 8-digit HS code including the \
-national sub-heading. Please update to 8471.30.00.
-
-─────────────────────────────────────────────
-FIELD REQUIRING CONFIRMATION — Incoterms
-  Document:  BOL-2026-0412.pdf
-  Found:     CIF (low confidence — scan quality issue in footer)
-  Required:  FOB or CIF
-  Action:    Please confirm the agreed Incoterm in a clean, legible section of \
-the revised Bill of Lading.
-
-─────────────────────────────────────────────
-
-Please amend the above documents and resubmit at your earliest convenience. \
-All other fields — port of loading, port of discharge, description of goods, \
-gross weight, and invoice number — have been verified and are correct.
-
-Regards,
-Priya Sharma
-Cargo Validation Team, GoComet Nova
-"""
-
-MOCK_SHIPMENT_QUEUE: list[dict[str, Any]] = [
-    {
-        "id": "email-001",
-        "ref": "BOL-2026-0412",
-        "from_name": "Raj Malhotra",
-        "customer": "ACME Corporation Limited",
-        "received_at": "08:31 IST",
-        "queue_status": "needs_attention",
-        "summary": "2 mismatches · 1 uncertain",
-    },
-    {
-        "id": "email-002",
-        "ref": "BOL-2026-0408",
-        "from_name": "Mei Lin",
-        "customer": "GlobalTrade GmbH",
-        "received_at": "07:15 IST",
-        "queue_status": "cleared",
-        "summary": "Auto-approved",
-    },
-    {
-        "id": "email-003",
-        "ref": "BOL-2026-0401",
-        "from_name": "Carlos Mendes",
-        "customer": "Pacific Freight Co.",
-        "received_at": "Yesterday 21:44",
-        "queue_status": "amendment_sent",
-        "summary": "Amendment sent",
-    },
-]
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 _STATUS_BADGE: dict[str, str] = {
     "match": "🟢 Match",
@@ -258,17 +62,49 @@ _STATUS_BADGE: dict[str, str] = {
     "uncertain": "🟠 Uncertain",
 }
 
-_QUEUE_DOT: dict[str, str] = {
-    "needs_attention": "🔴",
-    "cleared": "🟢",
-    "amendment_sent": "🔵",
+_OUTCOME_LABEL: dict[str, str] = {
+    "auto_approve_and_store": "Auto-approved",
+    "flag_for_human_review": "Flagged for review",
+    "draft_amendment_request": "Amendment drafted",
 }
 
-_QUEUE_LABEL: dict[str, str] = {
-    "needs_attention": "Needs attention",
-    "cleared": "Cleared",
-    "amendment_sent": "Amendment sent",
+_OUTCOME_DOT: dict[str, str] = {
+    "auto_approve_and_store": "🟢",
+    "flag_for_human_review": "🟠",
+    "draft_amendment_request": "🔴",
 }
+
+_DEFAULT_STATE: dict[str, Any] = {
+    "cg_view": "idle",
+    "selected_field": None,
+    "pipeline_result": None,
+    "pending_email": None,
+    "pending_attachments": [],  # list of {"name": str, "bytes": bytes} or {"name": str, "path": str}
+    "cg_source": None,
+}
+
+
+# ── helpers ───────────────────────────────────────────────────────────────────
+
+def _db_path() -> str:
+    return os.getenv("NOVA_DB_PATH", str(_PROJECT_ROOT / "app.duckdb"))
+
+
+def _load_local_env() -> None:
+    env_path = _PROJECT_ROOT / ".env"
+    if not env_path.exists():
+        return
+    for line in env_path.read_text().splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+def _reset() -> None:
+    for k, v in _DEFAULT_STATE.items():
+        st.session_state[k] = v
 
 
 def _confidence_label(conf: float) -> str:
@@ -286,156 +122,518 @@ def _counts(fields: list[dict[str, Any]]) -> tuple[int, int, int]:
     return matched, mismatched, uncertain
 
 
-# ---------------------------------------------------------------------------
-# Session state init
-# ---------------------------------------------------------------------------
+# ── adapters — convert real pipeline output to render format ──────────────────
 
-if "cg_view" not in st.session_state:
-    st.session_state["cg_view"] = "incoming"
-if "selected_field" not in st.session_state:
-    st.session_state["selected_field"] = None
-if "active_shipment_id" not in st.session_state:
-    st.session_state["active_shipment_id"] = "email-001"
-if "sent_shipments" not in st.session_state:
-    st.session_state["sent_shipments"] = set()
+def _adapt_fields(result: dict[str, Any]) -> list[dict[str, Any]]:
+    """Convert pipeline result to the field list the render states expect."""
+    merged = result.get("merged_fields", {})
+    fields_raw = result.get("validation_report", {}).get("fields", {})
+    rows: list[dict[str, Any]] = []
+    for field_name, payload in fields_raw.items():
+        doc_src = merged.get(field_name, {}).get("doc_source", "")
+        rows.append(
+            {
+                "field": field_name,
+                "label": _FIELD_LABELS.get(
+                    field_name, field_name.replace("_", " ").title()
+                ),
+                "status": payload.get("status", "uncertain"),
+                "confidence": float(payload.get("confidence", 0.0)),
+                "found": payload.get("found"),
+                "expected": payload.get("expected"),
+                "reason": payload.get("reason", ""),
+                "source_snippet": payload.get("source_snippet") or "",
+                "doc_source": doc_src,
+            }
+        )
+    return rows
 
-# ---------------------------------------------------------------------------
-# Sidebar — shipment queue
-# ---------------------------------------------------------------------------
+
+def _adapt_email(result: dict[str, Any]) -> dict[str, Any]:
+    """Build a display-friendly email dict from the pipeline result."""
+    email = result.get("email", {})
+    from_raw = email.get("from", "")
+    if "<" in from_raw and ">" in from_raw:
+        from_name = from_raw.split("<")[0].strip()
+        from_addr = from_raw.split("<")[1].rstrip(">").strip()
+    else:
+        from_name = (
+            email.get("from_name")
+            or from_raw.split("@")[0].replace(".", " ").title()
+        )
+        from_addr = from_raw
+
+    customer_name = result.get("validation_report", {}).get(
+        "customer_name", email.get("customer_id", "")
+    )
+    return {
+        "from_name": from_name,
+        "from_addr": from_addr,
+        "to_addr": email.get("to", "cg-team@gocomet.com"),
+        "subject": email.get("subject", "Shipment documents"),
+        "body": email.get("body", ""),
+        "received_at": email.get("received_at", ""),
+        "attachments": result.get("attachments", []),
+        "shipment_ref": result.get("shipment_id", ""),
+        "customer": customer_name,
+    }
+
+
+def _adapt_cross_doc(result: dict[str, Any]) -> list[dict[str, Any]]:
+    """Convert cross_doc_report into table rows for the verified state."""
+    cross = result.get("cross_doc_report", {})
+    rows: list[dict[str, Any]] = []
+
+    for disc in cross.get("discrepancies", []):
+        field_name = disc.get("field", "")
+        values_by_doc: dict[str, str] = disc.get("values_by_doc", {})
+        docs_str = " vs ".join(values_by_doc.keys()) if values_by_doc else "Multiple docs"
+        rows.append(
+            {
+                "field": _FIELD_LABELS.get(field_name, field_name.replace("_", " ").title()),
+                "docs": docs_str,
+                "status": disc.get("status", "mismatch"),
+                "note": disc.get("reason", ""),
+            }
+        )
+
+    for field_name in cross.get("consistent_fields", []):
+        rows.append(
+            {
+                "field": _FIELD_LABELS.get(field_name, field_name.replace("_", " ").title()),
+                "docs": "All docs",
+                "status": "match",
+                "note": "Consistent across all documents.",
+            }
+        )
+
+    return rows
+
+
+def _adapt_amendment(result: dict[str, Any]) -> str:
+    """Return the amendment email text from the pipeline decision."""
+    decision = result.get("decision", {})
+    amendment = decision.get("amendment_request")
+    if amendment:
+        return amendment
+
+    # flag_for_human_review — no amendment drafted; build a review-request template.
+    human_review_reasons: list[dict[str, Any]] = decision.get("human_review_reasons", [])
+    shipment_id = result.get("shipment_id", "this shipment")
+    if human_review_reasons:
+        lines = [
+            f"Subject: Documents Require Confirmation – {shipment_id}",
+            "",
+            "Dear Supplier,",
+            "",
+            "We have reviewed the submitted documents and require your confirmation "
+            "on the following fields before we can proceed:",
+        ]
+        for issue in human_review_reasons:
+            field_label = issue.get("field", "").replace("_", " ").title()
+            reason = issue.get("reason", "")
+            lines.append(f"\n- {field_label}: {reason}")
+        lines += [
+            "",
+            "Please confirm or resubmit corrected documents at your earliest convenience.",
+            "",
+            "Regards,",
+            "Cargo Validation Team, GoComet Nova",
+        ]
+        return "\n".join(lines)
+
+    return decision.get("explanation", "No amendment required.")
+
+
+# ── pipeline runner ───────────────────────────────────────────────────────────
+
+def _run_pipeline() -> None:
+    """Create a temp bundle and call process_bundle(). Updates session state."""
+    email_meta: dict[str, Any] = st.session_state["pending_email"] or {}
+    attachments: list[dict[str, Any]] = st.session_state["pending_attachments"] or []
+
+    with st.status("Running Nova pipeline…", expanded=True) as _status:
+        try:
+            st.write("Assembling bundle from email + attachments…")
+            with tempfile.TemporaryDirectory() as bundle_dir:
+                bundle_path = Path(bundle_dir)
+
+                email_json: dict[str, Any] = {
+                    "from": email_meta.get("from_addr", ""),
+                    "from_name": email_meta.get("from_name", ""),
+                    "to": email_meta.get("to_addr", "cg-team@gocomet.com"),
+                    "subject": email_meta.get("subject", ""),
+                    "received_at": email_meta.get("received_at", ""),
+                    "customer_id": email_meta.get("customer_id", "gocomet_demo_customer"),
+                    "body": email_meta.get("body", ""),
+                }
+                (bundle_path / "email.json").write_text(
+                    json.dumps(email_json, ensure_ascii=False), encoding="utf-8"
+                )
+
+                for att in attachments:
+                    if "path" in att:
+                        shutil.copy(att["path"], bundle_path / att["name"])
+                    else:
+                        (bundle_path / att["name"]).write_bytes(att["bytes"])
+
+                n_docs = len(attachments)
+                st.write(
+                    f"Running Extractor → Validator → Router on {n_docs} "
+                    f"document{'s' if n_docs != 1 else ''}…"
+                )
+                result = process_bundle(bundle_path, db_path=_db_path())
+
+            st.session_state["pipeline_result"] = result
+            st.session_state["cg_view"] = "verified"
+            _status.update(label="Pipeline complete", state="complete")
+
+        except Exception as exc:
+            _status.update(label="Pipeline failed", state="error")
+            st.error(f"Pipeline error: {exc}")
+            return
+
+    st.rerun()
+
+
+# ── session state init ────────────────────────────────────────────────────────
+
+for _k, _v in _DEFAULT_STATE.items():
+    if _k not in st.session_state:
+        st.session_state[_k] = _v
+
+_load_local_env()
+
+# ── sidebar ───────────────────────────────────────────────────────────────────
 
 with st.sidebar:
     st.markdown("### Nova CG Dashboard")
     st.caption("GoComet · Cargo Validation")
     st.divider()
-    st.markdown("**Incoming Shipments**")
 
-    for _item in MOCK_SHIPMENT_QUEUE:
-        _dot = _QUEUE_DOT[_item["queue_status"]]
-        _label = _QUEUE_LABEL[_item["queue_status"]]
-        _is_active = st.session_state["active_shipment_id"] == _item["id"]
-
+    _result_for_sidebar = st.session_state.get("pipeline_result")
+    if _result_for_sidebar:
+        _outcome_key = _result_for_sidebar.get("decision", {}).get("outcome", "")
+        _dot = _OUTCOME_DOT.get(_outcome_key, "⚪")
+        _label = _OUTCOME_LABEL.get(_outcome_key, _outcome_key or "Unknown")
+        _src_label = (
+            "Sample run"
+            if st.session_state.get("cg_source") == "sample"
+            else "Custom run"
+        )
         with st.container(border=True):
-            _dc, _db = st.columns([1, 8])
-            _dc.markdown(f"## {_dot}")
-            with _db:
-                st.markdown(f"**{_item['ref']}**")
-                st.caption(f"{_item['from_name']} · {_item['received_at']}")
-                st.caption(_item["customer"])
-                st.caption(f"_{_item['summary']}_")
+            st.markdown(f"{_dot} **{_result_for_sidebar.get('shipment_id', '—')}**")
+            st.caption(_label)
+            st.caption(_src_label)
+        st.divider()
 
-            if _is_active:
-                st.caption(f"✓ Currently viewing — {_label}")
-            elif _item["id"] == "email-001":
-                if st.button("Open", key=f"open_{_item['id']}"):
-                    st.session_state["active_shipment_id"] = _item["id"]
-                    st.session_state["cg_view"] = "incoming"
-                    st.session_state["selected_field"] = None
-                    st.rerun()
-            else:
-                st.caption(f"Status: {_label}")
+    if st.button("＋  New Run", use_container_width=True):
+        _reset()
+        st.rerun()
 
     st.divider()
-    st.caption("Phase 2 · Mock demo — no live agents")
 
-# ---------------------------------------------------------------------------
-# State router
-# ---------------------------------------------------------------------------
+    _current_view = st.session_state.get("cg_view", "idle")
+    _steps = [
+        ("idle", "Choose mode"),
+        ("form", "Build email"),
+        ("incoming", "Incoming email"),
+        ("verified", "Verification result"),
+        ("draft", "Draft reply"),
+    ]
+    for _step_id, _step_label in _steps:
+        if _step_id == _current_view:
+            st.markdown(f"**→ {_step_label}**")
+        else:
+            st.caption(_step_label)
+
+# ── state router ──────────────────────────────────────────────────────────────
 
 _view = st.session_state["cg_view"]
 
-# ---------------------------------------------------------------------------
-# State 1 — Incoming
-# ---------------------------------------------------------------------------
+# ──────────────────────────────────────────────────────────────────────────────
+# State 0 — Idle (landing / choose mode)
+# ──────────────────────────────────────────────────────────────────────────────
 
-if _view == "incoming":
+if _view == "idle":
+    st.markdown("## Nova CG Dashboard")
+    st.caption(
+        "Choose how to run the validation pipeline. "
+        "You can use the pre-bundled sample shipment, "
+        "or build your own email with custom documents."
+    )
+    st.divider()
+
+    _col_a, _col_b = st.columns(2)
+
+    with _col_a:
+        with st.container(border=True):
+            st.markdown("### Simulate Sample")
+            st.markdown(
+                "Run the live pipeline on the pre-bundled sample shipment:\n"
+                "- `BOL-SU-2026-001.pdf` — Bill of Lading\n"
+                "- `INV-SU-2026-001.jpg` — Commercial Invoice\n"
+                "- `PACK-SU-2026-001.pdf` — Packing List"
+            )
+            st.caption("No setup required. Uses the demo customer rule set.")
+
+            _missing_samples = [p for p, _ in _SAMPLE_DOCS if not p.exists()]
+            if _missing_samples:
+                st.warning(
+                    "Sample document(s) not found:\n"
+                    + "\n".join(f"- `{p.name}`" for p in _missing_samples)
+                )
+            else:
+                if st.button(
+                    "▶  Simulate Sample", type="primary", use_container_width=True
+                ):
+                    _email_data = json.loads(
+                        _SAMPLES_EMAIL.read_text(encoding="utf-8")
+                    )
+                    _from_raw = _email_data.get("from", "")
+                    st.session_state["pending_email"] = {
+                        "from_name": (
+                            _email_data.get("from_name")
+                            or _from_raw.split("@")[0].replace(".", " ").title()
+                        ),
+                        "from_addr": _from_raw,
+                        "to_addr": _email_data.get("to", "cg-team@gocomet.com"),
+                        "subject": _email_data.get("subject", ""),
+                        "received_at": _email_data.get("received_at", ""),
+                        "customer_id": _email_data.get(
+                            "customer_id", "gocomet_demo_customer"
+                        ),
+                        "body": _email_data.get("body", ""),
+                    }
+                    st.session_state["pending_attachments"] = [
+                        {"name": bundle_name, "path": str(src_path)}
+                        for src_path, bundle_name in _SAMPLE_DOCS
+                    ]
+                    st.session_state["cg_source"] = "sample"
+                    st.session_state["cg_view"] = "incoming"
+                    st.rerun()
+
+    with _col_b:
+        with st.container(border=True):
+            st.markdown("### Create Custom Email")
+            st.markdown(
+                "Fill in a supplier email, attach your own trade documents "
+                "(BOL, Invoice, Packing List, etc.), and run the live pipeline."
+            )
+            st.caption(
+                "Requires `OPENAI_API_KEY` (and `ANTHROPIC_API_KEY` for the validator)."
+            )
+            if st.button("✏  Create Custom Email", use_container_width=True):
+                st.session_state["cg_source"] = "custom"
+                st.session_state["cg_view"] = "form"
+                st.rerun()
+
+# ──────────────────────────────────────────────────────────────────────────────
+# State 0b — Form (custom email builder)
+# ──────────────────────────────────────────────────────────────────────────────
+
+elif _view == "form":
+    if st.button("← Back"):
+        st.session_state["cg_view"] = "idle"
+        st.rerun()
+
+    st.markdown("## Build a Supplier Email")
+    st.caption(
+        "Describe the incoming shipment email and attach the trade documents to validate."
+    )
+
+    with st.form("custom_email_form"):
+        st.markdown("**Sender details**")
+        _fc1, _fc2 = st.columns(2)
+        _from_name = _fc1.text_input("Sender name", value="Raj Malhotra")
+        _from_addr = _fc2.text_input(
+            "Sender email", value="raj.logistics@greenfield-exports.com"
+        )
+
+        st.markdown("**Email metadata**")
+        _subject = st.text_input(
+            "Subject", value="Shipment Documents – SU-2026-001 | Greenfield Exports"
+        )
+        _customer_id = st.selectbox(
+            "Customer rule set",
+            options=["gocomet_demo_customer"],
+            help="The rule set used to validate this shipment's documents.",
+        )
+        _body = st.text_area(
+            "Email body",
+            value=(
+                "Hi team,\n\nPlease find attached the shipment documents for our latest "
+                "consignment.\nKindly validate and confirm at your earliest convenience."
+                "\n\nRegards,\nRaj Malhotra\nExport Coordinator, Greenfield Exports"
+            ),
+            height=140,
+        )
+
+        st.markdown("**Attachments**")
+        _uploaded_files = st.file_uploader(
+            "Trade documents",
+            type=["pdf", "jpg", "jpeg", "png", "webp"],
+            accept_multiple_files=True,
+            help="Upload the Bill of Lading, Commercial Invoice, Packing List, etc.",
+        )
+
+        _submitted = st.form_submit_button(
+            "Continue →", type="primary", use_container_width=True
+        )
+
+    if _submitted:
+        if not _uploaded_files:
+            st.error("Please attach at least one trade document before continuing.")
+        else:
+            st.session_state["pending_email"] = {
+                "from_name": _from_name,
+                "from_addr": _from_addr,
+                "to_addr": "cg-team@gocomet.com",
+                "subject": _subject,
+                "received_at": "",
+                "customer_id": _customer_id,
+                "body": _body,
+            }
+            st.session_state["pending_attachments"] = [
+                {"name": f.name, "bytes": f.getvalue()} for f in _uploaded_files
+            ]
+            st.session_state["cg_view"] = "incoming"
+            st.rerun()
+
+# ──────────────────────────────────────────────────────────────────────────────
+# State 1 — Incoming
+# ──────────────────────────────────────────────────────────────────────────────
+
+elif _view == "incoming":
+    _email = st.session_state.get("pending_email") or {}
+    _attachments = st.session_state.get("pending_attachments") or []
+
     st.markdown("## Incoming Shipment")
-    st.caption("A new email from the supplier has arrived. The agent is ready to process the attached documents.")
+    st.caption(
+        "Review the supplier email below, then click **Run Pipeline** to start validation."
+    )
 
     with st.container(border=True):
         _c1, _c2 = st.columns([1, 6])
         _c1.markdown("### 📧")
         with _c2:
-            st.markdown(f"**From:** {MOCK_EMAIL['from_name']} &lt;{MOCK_EMAIL['from_addr']}&gt;")
-            st.markdown(f"**To:** {MOCK_EMAIL['to_addr']}")
-            st.markdown(f"**Subject:** {MOCK_EMAIL['subject']}")
-            st.caption(f"Received: {MOCK_EMAIL['received_at']}")
+            st.markdown(
+                f"**From:** {_email.get('from_name', '')} "
+                f"&lt;{_email.get('from_addr', '')}&gt;"
+            )
+            st.markdown(f"**To:** {_email.get('to_addr', '')}")
+            st.markdown(f"**Subject:** {_email.get('subject', '')}")
+            if _email.get("received_at"):
+                st.caption(f"Received: {_email['received_at']}")
 
-    st.markdown("**Attachments**")
-    _att_cols = st.columns(3)
-    _att_meta = [
-        ("📄", "Bill of Lading"),
-        ("🧾", "Commercial Invoice"),
-        ("📦", "Packing List"),
-    ]
-    for _col, _att, (_icon, _desc) in zip(_att_cols, MOCK_EMAIL["attachments"], _att_meta):
-        with _col:
-            with st.container(border=True):
-                st.markdown(f"{_icon} **{_att}**")
-                st.caption(_desc)
+    if _attachments:
+        st.markdown("**Attachments**")
+        _att_cols = st.columns(min(len(_attachments), 4))
+        for _col, _att in zip(_att_cols, _attachments):
+            with _col:
+                with st.container(border=True):
+                    st.markdown(f"📄 **{_att['name']}**")
+
+    if _email.get("body"):
+        with st.expander("Email body"):
+            st.text(_email["body"])
 
     st.divider()
 
-    with st.expander("Email body"):
-        st.text(MOCK_EMAIL["body"])
-
     st.markdown("**Agent pipeline — what will run:**")
     for _step, _desc in [
-        ("🔍 Extractor Agent", "Reads each PDF with a vision LLM, extracts 8 trade fields with confidence scores"),
-        ("✅ Validator Agent", "Compares extracted fields against customer rules field-by-field"),
-        ("⚡ Router Agent",   "Decides: auto-approve, flag for review, or draft amendment request"),
-        ("💾 Storage",        "Stores verified output to DuckDB — queryable by CG team"),
+        (
+            "🔍 Extractor Agent",
+            "Reads each document with a vision LLM, extracts 8 trade fields with confidence scores",
+        ),
+        (
+            "✅ Validator Agent",
+            "Compares extracted fields against customer rules field-by-field",
+        ),
+        (
+            "⚡ Router Agent",
+            "Decides: auto-approve, flag for review, or draft amendment request",
+        ),
+        (
+            "💾 Storage",
+            "Stores verified output to DuckDB — queryable by CG team",
+        ),
     ]:
         _sc1, _sc2 = st.columns([2, 5])
         _sc1.markdown(f"**{_step}**")
         _sc2.caption(_desc)
 
     st.divider()
-    st.info("Click **Simulate Processing** to run the pipeline on the 3 attached documents and see the verification result.")
 
-    if st.button("▶  Simulate Processing", type="primary", use_container_width=True):
-        with st.spinner("Agent processing 3 documents — Extractor → Validator → Router..."):
-            time.sleep(1.8)
-        st.session_state["cg_view"] = "verified"
-        st.rerun()
+    if not os.getenv("OPENAI_API_KEY"):
+        st.warning(
+            "OPENAI_API_KEY is not set. Add it to `.env` or your shell before running."
+        )
 
-# ---------------------------------------------------------------------------
+    if st.button("▶  Run Pipeline", type="primary", use_container_width=True):
+        _run_pipeline()
+
+# ──────────────────────────────────────────────────────────────────────────────
 # State 2 — Verification Result
-# ---------------------------------------------------------------------------
+# ──────────────────────────────────────────────────────────────────────────────
 
 elif _view == "verified":
-    _matched, _mismatched, _uncertain = _counts(MOCK_FIELDS)
+    _result = st.session_state.get("pipeline_result")
+    if not _result:
+        st.error("No pipeline result found. Start a new run.")
+        if st.button("← Start over"):
+            _reset()
+            st.rerun()
+        st.stop()
+
+    _fields = _adapt_fields(_result)
+    _email_info = _adapt_email(_result)
+    _matched, _mismatched, _uncertain = _counts(_fields)
 
     st.markdown("## Verification Result")
-    st.caption(f"Shipment: **{MOCK_EMAIL['shipment_ref']}** · Customer: **{MOCK_EMAIL['customer']}**")
+    st.caption(
+        f"Shipment: **{_email_info['shipment_ref']}** · "
+        f"Customer: **{_email_info['customer']}**"
+    )
 
     _m1, _m2, _m3 = st.columns(3)
     _m1.metric("Matched", _matched)
-    _m2.metric("Mismatches", _mismatched, delta=f"-{_mismatched} issues", delta_color="inverse")
-    _m3.metric("Uncertain", _uncertain, delta=f"-{_uncertain} need review", delta_color="inverse")
+    _m2.metric(
+        "Mismatches",
+        _mismatched,
+        delta=f"-{_mismatched} issues" if _mismatched else None,
+        delta_color="inverse",
+    )
+    _m3.metric(
+        "Uncertain",
+        _uncertain,
+        delta=f"-{_uncertain} need review" if _uncertain else None,
+        delta_color="inverse",
+    )
 
     if _mismatched > 0 or _uncertain > 0:
         st.error(
             f"**{_mismatched} mismatch(es) and {_uncertain} uncertain field(s) found.** "
-            "Review the flagged rows below, then send the draft amendment to the supplier."
+            "Review the flagged rows below, then send the draft reply to the supplier."
         )
     else:
-        st.success("All fields matched. You can auto-approve this shipment.")
+        st.success("All fields matched. This shipment can be auto-approved.")
 
     st.divider()
 
-    # Table header
     _hcols = st.columns([3, 2, 3, 3, 2, 1])
-    for _hcol, _hdr in zip(_hcols, ["Field", "Status", "Found", "Expected", "Confidence", "Detail"]):
+    for _hcol, _hdr in zip(
+        _hcols, ["Field", "Status", "Found", "Expected", "Confidence", "Detail"]
+    ):
         _hcol.markdown(f"**{_hdr}**")
     st.divider()
 
-    # Field rows
-    for _fd in MOCK_FIELDS:
+    for _fd in _fields:
         _st = _fd["status"]
         _row = st.columns([3, 2, 3, 3, 2, 1])
         _row[0].markdown(_fd["label"])
 
-        _badge = _STATUS_BADGE[_st]
+        _badge = _STATUS_BADGE.get(_st, _st)
         if _st == "mismatch":
             _row[1].markdown(f":red[{_badge}]")
         elif _st == "uncertain":
@@ -443,10 +641,15 @@ elif _view == "verified":
         else:
             _row[1].markdown(f":green[{_badge}]")
 
-        _row[2].markdown(_fd["found"] or "—")
+        _row[2].markdown(str(_fd["found"] or "—"))
         _exp = _fd["expected"]
-        _row[3].markdown(", ".join(_exp) if isinstance(_exp, list) else str(_exp))
-        _row[4].progress(_fd["confidence"], text=f"{_fd['confidence']:.0%}")
+        _row[3].markdown(
+            ", ".join(_exp) if isinstance(_exp, list) else str(_exp or "—")
+        )
+        _row[4].progress(
+            min(max(_fd["confidence"], 0.0), 1.0),
+            text=f"{_fd['confidence']:.0%}",
+        )
 
         if _st in ("mismatch", "uncertain"):
             if _row[5].button("View →", key=f"detail_{_fd['field']}"):
@@ -458,35 +661,59 @@ elif _view == "verified":
 
     st.divider()
 
-    with st.expander("Cross-document consistency check"):
-        st.caption("Fields checked across BOL, Invoice, and Packing List:")
-        for _fn, _docs, _cs, _note in [
-            ("consignee_name", "BOL vs Invoice",                "mismatch", "BOL: 'ACME Corp Ltd' ≠ Invoice: 'ACME Corporation Limited'"),
-            ("hs_code",        "BOL vs Invoice vs Packing List","match",    "8471.30 consistent across all 3 documents"),
-            ("gross_weight",   "Invoice vs Packing List",       "match",    "468.00 KG consistent across Invoice and Packing List"),
-        ]:
-            _xc1, _xc2, _xc3 = st.columns([2, 3, 4])
-            _xc1.markdown(f"**{_fn}**")
-            _xc2.caption(_docs)
-            _xb = _STATUS_BADGE[_cs]
-            if _cs == "mismatch":
-                _xc3.markdown(f":red[{_xb}] — {_note}")
-            else:
-                _xc3.markdown(f":green[{_xb}] — {_note}")
+    _cross_rows = _adapt_cross_doc(_result)
+    if _cross_rows:
+        _n_docs = len(_result.get("attachments", []))
+        with st.expander(f"Cross-document consistency check ({_n_docs} document(s))"):
+            _att_names = ", ".join(_result.get("attachments", []))
+            if _att_names:
+                st.caption(f"Checked across: {_att_names}")
+            for _cr in _cross_rows:
+                _xc1, _xc2, _xc3 = st.columns([2, 3, 4])
+                _xc1.markdown(f"**{_cr['field']}**")
+                _xc2.caption(_cr["docs"])
+                _xb = _STATUS_BADGE.get(_cr["status"], _cr["status"])
+                if _cr["status"] == "mismatch":
+                    _xc3.markdown(f":red[{_xb}] — {_cr['note']}")
+                elif _cr["status"] == "uncertain":
+                    _xc3.markdown(f":orange[{_xb}] — {_cr['note']}")
+                else:
+                    _xc3.markdown(f":green[{_xb}] — {_cr['note']}")
+
+    _audit_text = _result.get("decision", {}).get("decision_audit_report", "")
+    if _audit_text:
+        with st.expander("Decision audit report"):
+            st.write(_audit_text)
 
     st.divider()
 
-    if st.button("📝  Review Draft Reply to Supplier", type="primary", use_container_width=True):
-        st.session_state["cg_view"] = "draft"
-        st.rerun()
+    if _mismatched > 0 or _uncertain > 0:
+        if st.button(
+            "📝  Review Draft Reply to Supplier",
+            type="primary",
+            use_container_width=True,
+        ):
+            st.session_state["cg_view"] = "draft"
+            st.rerun()
 
-# ---------------------------------------------------------------------------
+# ──────────────────────────────────────────────────────────────────────────────
 # State 3 — Discrepancy Detail
-# ---------------------------------------------------------------------------
+# ──────────────────────────────────────────────────────────────────────────────
 
 elif _view == "discrepancy":
+    _result = st.session_state.get("pipeline_result")
+    if not _result:
+        st.error("No pipeline result found. Start a new run.")
+        if st.button("← Start over"):
+            _reset()
+            st.rerun()
+        st.stop()
+
+    _fields = _adapt_fields(_result)
+    _email_info = _adapt_email(_result)
+
     _fkey = st.session_state.get("selected_field")
-    _fd = next((f for f in MOCK_FIELDS if f["field"] == _fkey), None)
+    _fd = next((f for f in _fields if f["field"] == _fkey), None)
 
     if _fd is None:
         st.error("No field selected.")
@@ -501,7 +728,7 @@ elif _view == "discrepancy":
             st.rerun()
 
         st.markdown(f"## Field: {_fd['label']}")
-        _badge = _STATUS_BADGE[_st]
+        _badge = _STATUS_BADGE.get(_st, _st)
         if _st == "mismatch":
             st.markdown(f":red[**{_badge}**] · confidence {_fd['confidence']:.0%}")
         else:
@@ -514,8 +741,12 @@ elif _view == "discrepancy":
             with st.container(border=True):
                 st.markdown("#### Found in document")
                 st.markdown(f"**{_fd['found'] or '— not extracted —'}**")
-                st.caption(f"Source: `{_fd['doc_source']}`")
-                st.caption(f"Confidence: {_fd['confidence']:.0%} — {_confidence_label(_fd['confidence'])}")
+                if _fd.get("doc_source"):
+                    st.caption(f"Source: `{_fd['doc_source']}`")
+                st.caption(
+                    f"Confidence: {_fd['confidence']:.0%} — "
+                    f"{_confidence_label(_fd['confidence'])}"
+                )
 
         with _ce:
             with st.container(border=True):
@@ -524,9 +755,11 @@ elif _view == "discrepancy":
                 if isinstance(_exp, list):
                     for _ei in _exp:
                         st.markdown(f"• **{_ei}**")
-                else:
+                elif _exp:
                     st.markdown(f"**{_exp}**")
-                st.caption("Customer: ACME Corporation Limited")
+                else:
+                    st.markdown("_Not specified_")
+                st.caption(f"Customer: {_email_info['customer']}")
 
         st.divider()
 
@@ -535,11 +768,11 @@ elif _view == "discrepancy":
         else:
             st.warning(f"**Validation reason:** {_fd['reason']}")
 
-        st.divider()
-
-        st.markdown("#### Source snippet from document")
-        st.caption("Exact text region used by the extractor for this field:")
-        st.code(_fd["source_snippet"], language=None)
+        if _fd.get("source_snippet"):
+            st.divider()
+            st.markdown("#### Source snippet from document")
+            st.caption("Exact text region used by the extractor for this field:")
+            st.code(_fd["source_snippet"], language=None)
 
         st.divider()
 
@@ -549,21 +782,34 @@ elif _view == "discrepancy":
                 st.session_state["cg_view"] = "verified"
                 st.rerun()
         with _nc2:
-            if st.button("📝  Go to Draft Reply", type="primary", use_container_width=True):
+            if st.button(
+                "📝  Go to Draft Reply", type="primary", use_container_width=True
+            ):
                 st.session_state["cg_view"] = "draft"
                 st.rerun()
 
-# ---------------------------------------------------------------------------
+# ──────────────────────────────────────────────────────────────────────────────
 # State 4 — Draft Reply
-# ---------------------------------------------------------------------------
+# ──────────────────────────────────────────────────────────────────────────────
 
 elif _view == "draft":
-    _matched, _mismatched, _uncertain = _counts(MOCK_FIELDS)
+    _result = st.session_state.get("pipeline_result")
+    if not _result:
+        st.error("No pipeline result found. Start a new run.")
+        if st.button("← Start over"):
+            _reset()
+            st.rerun()
+        st.stop()
+
+    _fields = _adapt_fields(_result)
+    _email_info = _adapt_email(_result)
+    _amendment = _adapt_amendment(_result)
+    _matched, _mismatched, _uncertain = _counts(_fields)
 
     st.markdown("## Draft Reply to Supplier")
     st.caption(
-        f"Shipment: **{MOCK_EMAIL['shipment_ref']}** · "
-        f"To: **{MOCK_EMAIL['from_name']}** &lt;{MOCK_EMAIL['from_addr']}&gt;"
+        f"Shipment: **{_email_info['shipment_ref']}** · "
+        f"To: **{_email_info['from_name']}** &lt;{_email_info['from_addr']}&gt;"
     )
 
     st.info(
@@ -572,19 +818,21 @@ elif _view == "draft":
         "Review and edit before sending — the agent never sends on its own."
     )
 
-    _flagged = [f for f in MOCK_FIELDS if f["status"] in ("mismatch", "uncertain")]
+    _flagged = [f for f in _fields if f["status"] in ("mismatch", "uncertain")]
     if _flagged:
         st.markdown("**Issues included in this reply:**")
-        _chip_cols = st.columns(len(_flagged))
+        _chip_cols = st.columns(min(len(_flagged), 4))
         for _col, _f in zip(_chip_cols, _flagged):
             _color = "red" if _f["status"] == "mismatch" else "orange"
-            _col.markdown(f":{_color}[{_STATUS_BADGE[_f['status']]}  **{_f['label']}**]")
+            _col.markdown(
+                f":{_color}[{_STATUS_BADGE[_f['status']]}  **{_f['label']}**]"
+            )
 
     st.divider()
 
     st.text_area(
         "Draft email to supplier (fully editable)",
-        value=MOCK_AMENDMENT_EMAIL,
+        value=_amendment,
         height=400,
         help="Edit this email before sending. The agent never sends without your approval.",
     )
@@ -600,12 +848,10 @@ elif _view == "draft":
     with _cs:
         if st.button("📤  Send to Supplier", type="primary", use_container_width=True):
             st.toast(
-                f"Amendment email sent to {MOCK_EMAIL['from_name']} ({MOCK_EMAIL['from_addr']})",
+                f"Amendment email sent to {_email_info['from_name']} "
+                f"({_email_info['from_addr']})",
                 icon="✅",
             )
-            st.session_state["sent_shipments"].add(MOCK_EMAIL["id"])
-            st.session_state["cg_view"] = "incoming"
-            st.session_state["selected_field"] = None
             time.sleep(0.4)
             st.rerun()
     with _cb:
@@ -627,5 +873,5 @@ elif _view == "draft":
 else:
     st.error(f"Unknown view: {_view!r}")
     if st.button("Reset"):
-        st.session_state["cg_view"] = "incoming"
+        _reset()
         st.rerun()
